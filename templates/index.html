@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>SQLite B-Tree Visualizer</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        /* __STYLES_PLACEHOLDER__ */
+    </style>
+</head>
+<body>
+    <div id="app">
+        <nav id="sidebar">
+            <h1>SQLite B-Tree Viz</h1>
+            <div id="db-info" class="info-section">
+                <h2>Database Info</h2>
+                <div id="db-details"></div>
+            </div>
+            <div id="schema-section" class="info-section">
+                <h2>Tables & Indexes</h2>
+                <div id="schema-list"></div>
+            </div>
+        </nav>
+
+        <main id="main-content">
+            <div id="controls">
+                <div class="control-group">
+                    <label for="btree-select">B-Tree:</label>
+                    <select id="btree-select"></select>
+                </div>
+                <div class="control-group">
+                    <label for="view-mode">View:</label>
+                    <select id="view-mode">
+                        <option value="tree">Tree Layout</option>
+                        <option value="force">Force Layout</option>
+                    </select>
+                </div>
+                <div class="control-group">
+                    <button id="zoom-in">+</button>
+                    <button id="zoom-out">-</button>
+                    <button id="zoom-reset">Reset</button>
+                </div>
+            </div>
+            <div id="viz-container">
+                <svg id="tree-viz"></svg>
+            </div>
+        </main>
+
+        <aside id="detail-panel">
+            <h2>Page Details</h2>
+            <div id="page-info">
+                <p class="placeholder">Click a page to view details</p>
+            </div>
+            <div id="page-viz-container">
+                <svg id="page-viz"></svg>
+            </div>
+            <div id="cell-list">
+                <h3>Cells</h3>
+                <div id="cells"></div>
+            </div>
+        </aside>
+    </div>
+
+    <script>
+        const DATA = "__DATA_PLACEHOLDER__";
+    </script>
+    <script>
+        /* __VIZ_JS_PLACEHOLDER__ */
+    </script>
+</body>
+</html>
