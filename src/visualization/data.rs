@@ -190,37 +190,65 @@ pub struct VizCell {
     pub has_overflow: bool,
     pub overflow_page: Option<u32>,
     pub preview: String,
+    pub full_content: String,
 }
 
 impl VizPage {
     pub fn from_page(page: &Page) -> Self {
         let cells: Vec<_> = page.cells.iter().enumerate().map(|(i, cell)| {
-            let preview = match cell {
+            let (preview, full_content) = match cell {
                 Cell::TableLeaf(c) => {
                     if let Some(record) = &c.payload {
-                        record.values.iter()
+                        let prev = record.values.iter()
                             .take(3)
                             .map(|v| v.preview(20))
                             .collect::<Vec<_>>()
-                            .join(", ")
+                            .join(", ");
+                        let full = record.values.iter()
+                            .enumerate()
+                            .map(|(idx, v)| format!("[{}]: {}", idx, v.preview(1000)))
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        (prev, full)
                     } else {
-                        format!("rowid={}", c.rowid)
+                        let s = format!("rowid={}", c.rowid);
+                        (s.clone(), s)
                     }
                 }
-                Cell::TableInterior(c) => format!("rowid={}, child={}", c.rowid, c.left_child_page),
+                Cell::TableInterior(c) => {
+                    let s = format!("rowid={}, child={}", c.rowid, c.left_child_page);
+                    (s.clone(), s)
+                }
                 Cell::IndexLeaf(c) => {
                     if let Some(record) = &c.payload {
-                        record.values.iter()
+                        let prev = record.values.iter()
                             .take(3)
                             .map(|v| v.preview(20))
                             .collect::<Vec<_>>()
-                            .join(", ")
+                            .join(", ");
+                        let full = record.values.iter()
+                            .enumerate()
+                            .map(|(idx, v)| format!("[{}]: {}", idx, v.preview(1000)))
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        (prev, full)
                     } else {
-                        format!("payload_size={}", c.payload_size)
+                        let s = format!("payload_size={}", c.payload_size);
+                        (s.clone(), s)
                     }
                 }
                 Cell::IndexInterior(c) => {
-                    format!("child={}, payload_size={}", c.left_child_page, c.payload_size)
+                    let base = format!("child={}, payload_size={}", c.left_child_page, c.payload_size);
+                    if let Some(record) = &c.payload {
+                        let full = record.values.iter()
+                            .enumerate()
+                            .map(|(idx, v)| format!("[{}]: {}", idx, v.preview(1000)))
+                            .collect::<Vec<_>>()
+                            .join("\n");
+                        (base, full)
+                    } else {
+                        (base.clone(), base)
+                    }
                 }
             };
 
@@ -240,6 +268,7 @@ impl VizPage {
                 has_overflow: cell.overflow_page().is_some(),
                 overflow_page: cell.overflow_page(),
                 preview,
+                full_content,
             }
         }).collect();
 

@@ -63,6 +63,34 @@
         </aside>
     </div>
 
+    <!-- Page Detail View (fullscreen overlay) -->
+    <div id="page-detail-view">
+        <div id="page-detail-header">
+            <button class="back-btn" onclick="closePageDetailView()">&larr;</button>
+            <h2 id="page-detail-title">Page 1 | Table Leaf</h2>
+        </div>
+        <div id="page-detail-body">
+            <div id="page-grid-container">
+                <div id="page-grid"></div>
+                <div class="page-grid-legend">
+                    <div class="legend-item"><div class="legend-color" style="background:#f1c40f"></div> Page Header</div>
+                    <div class="legend-item"><div class="legend-color" style="background:#f39c12"></div> Cell Pointers</div>
+                    <div class="legend-item"><div class="legend-color" style="background:#ecf0f1"></div> Free Space</div>
+                    <div class="legend-item"><div class="legend-color" style="background:#3498db"></div> Cell Content</div>
+                    <div class="legend-item"><div class="legend-color" style="background:#e74c3c"></div> Overflow/Selected</div>
+                </div>
+            </div>
+            <div id="page-detail-sidebar">
+                <h3>Selection Info</h3>
+                <div id="selection-info">
+                    <p class="placeholder">Click a cell pointer or cell to see details</p>
+                </div>
+                <h3>Cells</h3>
+                <div id="page-detail-cells"></div>
+            </div>
+        </div>
+    </div>
+
     <script>
         const DATA = "__DATA_PLACEHOLDER__";
     </script>

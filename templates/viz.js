@@ -387,6 +387,9 @@ function getPageClass(pageType) {
     return typeMap[pageType] || 'page-leaf-table';
 }
 
+// Current page for detail view
+let currentDetailPage = null;
+
 // Show page details
 function showPageDetails(pageNum) {
     const page = DATA.pages.find(p => p.page_number === pageNum);
@@ -413,6 +416,7 @@ function showPageDetails(pageNum) {
             <span class="info-label">Free Space</span>
             <span class="info-value">${page.free_space} bytes</span>
         </div>
+        <button class="view-page-btn" onclick="openPageDetailView(${page.page_number})">View Page Structure</button>
     `;
 
     // Render page structure
@@ -500,27 +504,40 @@ function renderPageStructure(page) {
     });
 }
 
-// Render cells list
+// Render cells list with expandable content
 function renderCellsList(page) {
     const container = document.getElementById('cells');
     let html = '';
 
     page.cells.forEach(cell => {
         html += `
-            <div class="cell-item ${cell.has_overflow ? 'has-overflow' : ''}">
+            <div class="cell-item ${cell.has_overflow ? 'has-overflow' : ''}" onclick="toggleCellExpand(this)">
                 <div class="cell-header">
                     <span class="cell-index">#${cell.index}</span>
                     <span class="cell-type">${cell.cell_type}</span>
                 </div>
                 <div class="cell-preview">${escapeHtml(cell.preview)}</div>
-                ${cell.rowid !== null ? `<div>Rowid: ${cell.rowid}</div>` : ''}
-                ${cell.left_child !== null ? `<div>Child: Page ${cell.left_child}</div>` : ''}
-                ${cell.has_overflow ? `<div style="color: #e74c3c">Overflow: Page ${cell.overflow_page}</div>` : ''}
+                <div class="cell-meta">
+                    ${cell.rowid !== null ? `<span>Rowid: ${cell.rowid}</span>` : ''}
+                    <span>Offset: ${cell.offset}</span>
+                    <span>Size: ${cell.size}B</span>
+                    ${cell.left_child !== null ? `<span>Child: P${cell.left_child}</span>` : ''}
+                </div>
+                ${cell.has_overflow ? `<div style="color: #e74c3c; font-size: 11px; margin-top: 3px">Overflow: Page ${cell.overflow_page}</div>` : ''}
+                <div class="expand-hint">Click to expand</div>
+                <div class="cell-full-content">
+                    <pre>${escapeHtml(cell.full_content || cell.preview)}</pre>
+                </div>
             </div>
         `;
     });
 
     container.innerHTML = html || '<p class="placeholder">No cells</p>';
+}
+
+// Toggle cell expansion
+function toggleCellExpand(element) {
+    element.classList.toggle('expanded');
 }
 
 // Clear page details panel
@@ -554,6 +571,274 @@ function escapeHtml(text) {
     div.textContent = text;
     return div.innerHTML;
 }
+
+// ===============================
+// Page Detail View Functions
+// ===============================
+
+// Open the detailed page view
+function openPageDetailView(pageNum) {
+    const page = DATA.pages.find(p => p.page_number === pageNum);
+    if (!page) return;
+
+    currentDetailPage = page;
+
+    // Update title
+    document.getElementById('page-detail-title').textContent =
+        `Page ${page.page_number} | ${page.page_type}`;
+
+    // Render the byte grid
+    renderPageGrid(page);
+
+    // Render cells in sidebar
+    renderPageDetailCells(page);
+
+    // Show the view
+    document.getElementById('page-detail-view').classList.add('active');
+    document.body.style.overflow = 'hidden';
+}
+
+// Close the detailed page view
+function closePageDetailView() {
+    document.getElementById('page-detail-view').classList.remove('active');
+    document.body.style.overflow = '';
+    currentDetailPage = null;
+}
+
+// Render the page as a byte grid
+function renderPageGrid(page) {
+    const container = document.getElementById('page-grid');
+    const pageSize = DATA.database_info.page_size;
+    const bytesPerRow = 64;
+    const rows = Math.ceil(pageSize / bytesPerRow);
+
+    // Calculate regions
+    const isPage1 = page.page_number === 1;
+    const dbHeaderEnd = isPage1 ? 100 : 0;
+    const pageHeaderStart = isPage1 ? 100 : 0;
+    const isInterior = page.page_type.includes('Interior');
+    const pageHeaderSize = isInterior ? 12 : 8;
+    const pageHeaderEnd = pageHeaderStart + pageHeaderSize;
+    const cellPointerEnd = pageHeaderEnd + (page.cell_count * 2);
+    const cellContentStart = page.cell_content_start || pageSize;
+
+    // Build cell regions map
+    const cellRegions = [];
+    page.cells.forEach((cell, idx) => {
+        cellRegions.push({
+            index: idx,
+            start: cell.offset,
+            end: cell.offset + cell.size,
+            hasOverflow: cell.has_overflow
+        });
+    });
+
+    let html = '';
+
+    for (let row = 0; row < rows; row++) {
+        html += '<div class="page-grid-row">';
+        for (let col = 0; col < bytesPerRow; col++) {
+            const byteOffset = row * bytesPerRow + col;
+            if (byteOffset >= pageSize) break;
+
+            let className = 'page-byte';
+            let dataAttrs = `data-offset="${byteOffset}"`;
+
+            // Determine byte type
+            if (isPage1 && byteOffset < 100) {
+                className += ' header';
+                dataAttrs += ' data-type="db-header"';
+            } else if (byteOffset >= pageHeaderStart && byteOffset < pageHeaderEnd) {
+                className += ' header';
+                dataAttrs += ' data-type="page-header"';
+            } else if (byteOffset >= pageHeaderEnd && byteOffset < cellPointerEnd) {
+                className += ' cell-pointer';
+                const ptrIndex = Math.floor((byteOffset - pageHeaderEnd) / 2);
+                dataAttrs += ` data-type="cell-pointer" data-ptr-index="${ptrIndex}"`;
+            } else {
+                // Check if in a cell
+                let inCell = null;
+                for (const region of cellRegions) {
+                    if (byteOffset >= region.start && byteOffset < region.end) {
+                        inCell = region;
+                        break;
+                    }
+                }
+
+                if (inCell) {
+                    className += ' cell-content';
+                    if (inCell.hasOverflow) className += ' overflow';
+                    dataAttrs += ` data-type="cell" data-cell-index="${inCell.index}"`;
+                } else {
+                    className += ' free';
+                    dataAttrs += ' data-type="free"';
+                }
+            }
+
+            html += `<div class="${className}" ${dataAttrs}></div>`;
+        }
+        html += '</div>';
+    }
+
+    container.innerHTML = html;
+
+    // Add click handlers for cell pointers
+    container.querySelectorAll('.cell-pointer').forEach(el => {
+        el.addEventListener('click', (e) => {
+            const ptrIndex = parseInt(el.dataset.ptrIndex);
+            selectCellPointer(ptrIndex, page);
+        });
+    });
+
+    // Add click handlers for cells
+    container.querySelectorAll('.cell-content').forEach(el => {
+        el.addEventListener('click', (e) => {
+            const cellIndex = parseInt(el.dataset.cellIndex);
+            selectCell(cellIndex, page);
+        });
+    });
+}
+
+// Select a cell pointer and highlight the corresponding cell
+function selectCellPointer(ptrIndex, page) {
+    // Clear previous selection
+    document.querySelectorAll('.page-byte.selected, .page-byte.highlighted').forEach(el => {
+        el.classList.remove('selected', 'highlighted');
+    });
+
+    // Highlight the pointer bytes
+    const isInterior = page.page_type.includes('Interior');
+    const pageHeaderSize = isInterior ? 12 : 8;
+    const isPage1 = page.page_number === 1;
+    const pageHeaderStart = isPage1 ? 100 : 0;
+    const ptrStart = pageHeaderStart + pageHeaderSize + (ptrIndex * 2);
+
+    document.querySelectorAll(`.page-byte[data-offset="${ptrStart}"], .page-byte[data-offset="${ptrStart + 1}"]`).forEach(el => {
+        el.classList.add('selected');
+    });
+
+    // Get the cell this pointer points to
+    const cell = page.cells[ptrIndex];
+    if (cell) {
+        // Highlight the cell content
+        for (let i = cell.offset; i < cell.offset + cell.size; i++) {
+            const el = document.querySelector(`.page-byte[data-offset="${i}"]`);
+            if (el) el.classList.add('highlighted');
+        }
+
+        // Update selection info
+        showPointerInfo(ptrIndex, cell, page);
+    }
+}
+
+// Select a cell and show its details
+function selectCell(cellIndex, page) {
+    // Clear previous selection
+    document.querySelectorAll('.page-byte.selected, .page-byte.highlighted').forEach(el => {
+        el.classList.remove('selected', 'highlighted');
+    });
+
+    const cell = page.cells[cellIndex];
+    if (!cell) return;
+
+    // Highlight the cell
+    for (let i = cell.offset; i < cell.offset + cell.size; i++) {
+        const el = document.querySelector(`.page-byte[data-offset="${i}"]`);
+        if (el) el.classList.add('highlighted');
+    }
+
+    // Also highlight the corresponding pointer
+    const isInterior = page.page_type.includes('Interior');
+    const pageHeaderSize = isInterior ? 12 : 8;
+    const isPage1 = page.page_number === 1;
+    const pageHeaderStart = isPage1 ? 100 : 0;
+    const ptrStart = pageHeaderStart + pageHeaderSize + (cellIndex * 2);
+
+    document.querySelectorAll(`.page-byte[data-offset="${ptrStart}"], .page-byte[data-offset="${ptrStart + 1}"]`).forEach(el => {
+        el.classList.add('selected');
+    });
+
+    showCellInfo(cellIndex, cell, page);
+}
+
+// Show pointer info in sidebar
+function showPointerInfo(ptrIndex, cell, page) {
+    const isInterior = page.page_type.includes('Interior');
+    const pageHeaderSize = isInterior ? 12 : 8;
+    const isPage1 = page.page_number === 1;
+    const pageHeaderStart = isPage1 ? 100 : 0;
+    const ptrOffset = pageHeaderStart + pageHeaderSize + (ptrIndex * 2);
+    const fileOffset = (page.page_number - 1) * DATA.database_info.page_size + ptrOffset;
+
+    document.getElementById('selection-info').innerHTML = `
+        <div class="pointer-info">
+            <h4>Cell Pointer #${ptrIndex}</h4>
+            <div class="meta">File Offset: ${fileOffset} · Page Offset: ${ptrOffset} · Length: 2</div>
+            <p style="font-size: 12px; margin-bottom: 10px;">Points to cell content at offset ${cell.offset}</p>
+            <table class="detail-table">
+                <tr><th>Field</th><th>Value</th></tr>
+                <tr><td>Pointer Index</td><td>${ptrIndex}</td></tr>
+                <tr><td>Points to Offset</td><td>${cell.offset}</td></tr>
+                <tr><td>Cell Size</td><td>${cell.size} bytes</td></tr>
+                ${cell.rowid !== null ? `<tr><td>Rowid</td><td>${cell.rowid}</td></tr>` : ''}
+            </table>
+        </div>
+    `;
+}
+
+// Show cell info in sidebar
+function showCellInfo(cellIndex, cell, page) {
+    const fileOffset = (page.page_number - 1) * DATA.database_info.page_size + cell.offset;
+
+    document.getElementById('selection-info').innerHTML = `
+        <div class="cell-detail-info">
+            <h4>Cell #${cellIndex} (${cell.cell_type})</h4>
+            <div class="meta">File Offset: ${fileOffset} · Page Offset: ${cell.offset} · Size: ${cell.size}</div>
+            <table class="detail-table">
+                <tr><th>Field</th><th>Value</th></tr>
+                <tr><td>Cell Index</td><td>${cellIndex}</td></tr>
+                <tr><td>Offset</td><td>${cell.offset}</td></tr>
+                <tr><td>Size</td><td>${cell.size} bytes</td></tr>
+                ${cell.rowid !== null ? `<tr><td>Rowid</td><td>${cell.rowid}</td></tr>` : ''}
+                ${cell.payload_size ? `<tr><td>Payload Size</td><td>${cell.payload_size} bytes</td></tr>` : ''}
+                ${cell.left_child !== null ? `<tr><td>Left Child</td><td>Page ${cell.left_child}</td></tr>` : ''}
+                ${cell.has_overflow ? `<tr><td>Overflow</td><td>Page ${cell.overflow_page}</td></tr>` : ''}
+            </table>
+            <h4 style="margin-top: 15px;">Full Content</h4>
+            <pre style="background: #f5f5f5; padding: 10px; border-radius: 4px; font-size: 11px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; max-height: 300px; overflow-y: auto;">${escapeHtml(cell.full_content || cell.preview)}</pre>
+        </div>
+    `;
+}
+
+// Render cells list in page detail sidebar
+function renderPageDetailCells(page) {
+    const container = document.getElementById('page-detail-cells');
+    let html = '';
+
+    page.cells.forEach((cell, idx) => {
+        html += `
+            <div class="cell-item" onclick="selectCell(${idx}, currentDetailPage)" style="cursor: pointer;">
+                <div class="cell-header">
+                    <span class="cell-index">#${idx}</span>
+                    <span class="cell-type">${cell.cell_type}</span>
+                </div>
+                <div class="cell-meta">
+                    <span>Offset: ${cell.offset}</span>
+                    <span>Size: ${cell.size}B</span>
+                </div>
+            </div>
+        `;
+    });
+
+    container.innerHTML = html || '<p class="placeholder">No cells</p>';
+}
+
+// Handle escape key to close page detail view
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && currentDetailPage) {
+        closePageDetailView();
+    }
+});
 
 // Start
 document.addEventListener('DOMContentLoaded', init);
