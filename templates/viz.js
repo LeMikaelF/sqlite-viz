@@ -645,6 +645,9 @@ function openPageDetailView(pageNum) {
     // Render cells in sidebar
     renderPageDetailCells(page);
 
+    // Setup resize handle (once)
+    setupPageDetailResize();
+
     // Show the view
     document.getElementById('page-detail-view').classList.add('active');
     document.body.style.overflow = 'hidden';
@@ -656,6 +659,49 @@ function closePageDetailView() {
     document.body.style.overflow = '';
     currentDetailPage = null;
     currentCellLookup = null;
+}
+
+// Setup resize handle for page detail sidebar
+let pageDetailResizeSetup = false;
+function setupPageDetailResize() {
+    if (pageDetailResizeSetup) return;
+    pageDetailResizeSetup = true;
+
+    const handle = document.getElementById('page-detail-resize-handle');
+    const sidebar = document.getElementById('page-detail-sidebar');
+    const body = document.getElementById('page-detail-body');
+    if (!handle || !sidebar) return;
+
+    let isResizing = false;
+    let startX = 0;
+    let startWidth = 0;
+
+    handle.addEventListener('mousedown', (e) => {
+        isResizing = true;
+        startX = e.clientX;
+        startWidth = sidebar.offsetWidth;
+        handle.classList.add('dragging');
+        document.body.style.cursor = 'ew-resize';
+        document.body.style.userSelect = 'none';
+        e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (!isResizing) return;
+        const delta = startX - e.clientX;
+        const newWidth = Math.min(Math.max(startWidth + delta, 250), 800);
+        body.style.setProperty('--page-detail-sidebar-width', newWidth + 'px');
+        sidebar.style.width = newWidth + 'px';
+    });
+
+    document.addEventListener('mouseup', () => {
+        if (isResizing) {
+            isResizing = false;
+            handle.classList.remove('dragging');
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+        }
+    });
 }
 
 // Render the page as a byte grid
