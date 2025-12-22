@@ -390,6 +390,7 @@ function getPageClass(pageType) {
 // Current page for detail view
 let currentDetailPage = null;
 let currentCellLookup = null;
+let selectedCellIndices = new Set(); // Track multiple selected cells
 
 // Show page details
 function showPageDetails(pageNum) {
@@ -634,6 +635,7 @@ function openPageDetailView(pageNum) {
     if (!page) return;
 
     currentDetailPage = page;
+    selectedCellIndices.clear(); // Clear selection when opening new page
 
     // Update title
     document.getElementById('page-detail-title').textContent =
@@ -651,6 +653,9 @@ function openPageDetailView(pageNum) {
     // Show the view
     document.getElementById('page-detail-view').classList.add('active');
     document.body.style.overflow = 'hidden';
+
+    // Set initial placeholder
+    document.getElementById('selection-info').innerHTML = '<p class="placeholder">Click a cell to see details. Shift+Click or Cmd/Ctrl+Click to select multiple.</p>';
 }
 
 // Close the detailed page view
@@ -815,7 +820,8 @@ function renderPageGrid(page) {
     container.querySelectorAll('.cell-pointer').forEach(el => {
         el.addEventListener('click', (e) => {
             const ptrIndex = parseInt(el.dataset.ptrIndex);
-            selectCellPointer(ptrIndex, page, cellLookup);
+            const multiSelect = e.shiftKey || e.metaKey || e.ctrlKey;
+            selectCellPointer(ptrIndex, page, cellLookup, multiSelect);
         });
     });
 
@@ -823,74 +829,180 @@ function renderPageGrid(page) {
     container.querySelectorAll('.cell-content').forEach(el => {
         el.addEventListener('click', (e) => {
             const cellIndex = parseInt(el.dataset.cellIndex);
-            selectCell(cellIndex, page, cellLookup);
+            const multiSelect = e.shiftKey || e.metaKey || e.ctrlKey;
+            selectCell(cellIndex, page, cellLookup, multiSelect);
+        });
+    });
+
+    // Click on free space or header clears selection
+    container.querySelectorAll('.page-byte.free, .page-byte.header').forEach(el => {
+        el.addEventListener('click', () => {
+            clearCellSelection();
         });
     });
 }
 
-// Select a cell pointer and highlight the corresponding cell
-function selectCellPointer(ptrIndex, page, cellLookup) {
-    // Clear previous selection
+// Clear all cell selections
+function clearCellSelection() {
+    selectedCellIndices.clear();
+    document.querySelectorAll('.page-byte.selected, .page-byte.highlighted').forEach(el => {
+        el.classList.remove('selected', 'highlighted');
+    });
+    document.getElementById('selection-info').innerHTML = '<p class="placeholder">Click a cell to see details. Shift+Click or Cmd/Ctrl+Click to select multiple.</p>';
+}
+
+// Update visual highlighting based on selectedCellIndices
+function updateCellHighlights(page, cellLookup) {
+    // Clear all highlights first
     document.querySelectorAll('.page-byte.selected, .page-byte.highlighted').forEach(el => {
         el.classList.remove('selected', 'highlighted');
     });
 
-    // Highlight the pointer bytes
     const isInterior = page.page_type.includes('Interior');
     const pageHeaderSize = isInterior ? 12 : 8;
     const isPage1 = page.page_number === 1;
     const pageHeaderStart = isPage1 ? 100 : 0;
-    const ptrStart = pageHeaderStart + pageHeaderSize + (ptrIndex * 2);
 
-    document.querySelectorAll(`.page-byte[data-offset="${ptrStart}"], .page-byte[data-offset="${ptrStart + 1}"]`).forEach(el => {
-        el.classList.add('selected');
-    });
+    // Highlight all selected cells
+    selectedCellIndices.forEach(cellIndex => {
+        const cell = page.cells[cellIndex];
+        if (!cell) return;
 
-    // Get the cell this pointer points to
-    const cell = page.cells[ptrIndex];
-    const cellInfo = cellLookup ? cellLookup.get(ptrIndex) : null;
-    if (cell) {
         // Highlight the cell content
         for (let i = cell.offset; i < cell.offset + cell.size; i++) {
             const el = document.querySelector(`.page-byte[data-offset="${i}"]`);
             if (el) el.classList.add('highlighted');
         }
 
-        // Update selection info
-        showPointerInfo(ptrIndex, cell, page, cellInfo);
+        // Highlight the corresponding pointer
+        const ptrStart = pageHeaderStart + pageHeaderSize + (cellIndex * 2);
+        document.querySelectorAll(`.page-byte[data-offset="${ptrStart}"], .page-byte[data-offset="${ptrStart + 1}"]`).forEach(el => {
+            el.classList.add('selected');
+        });
+    });
+}
+
+// Select a cell pointer and highlight the corresponding cell
+function selectCellPointer(ptrIndex, page, cellLookup, multiSelect = false) {
+    if (multiSelect) {
+        // Toggle this cell in selection
+        if (selectedCellIndices.has(ptrIndex)) {
+            selectedCellIndices.delete(ptrIndex);
+        } else {
+            selectedCellIndices.add(ptrIndex);
+        }
+    } else {
+        // Single select - clear and select only this one
+        selectedCellIndices.clear();
+        selectedCellIndices.add(ptrIndex);
     }
+
+    updateCellHighlights(page, cellLookup);
+    showSelectionInfo(page, cellLookup);
 }
 
 // Select a cell and show its details
-function selectCell(cellIndex, page, cellLookup) {
-    // Clear previous selection
-    document.querySelectorAll('.page-byte.selected, .page-byte.highlighted').forEach(el => {
-        el.classList.remove('selected', 'highlighted');
-    });
-
-    const cell = page.cells[cellIndex];
-    if (!cell) return;
-
-    const cellInfo = cellLookup ? cellLookup.get(cellIndex) : null;
-
-    // Highlight the cell
-    for (let i = cell.offset; i < cell.offset + cell.size; i++) {
-        const el = document.querySelector(`.page-byte[data-offset="${i}"]`);
-        if (el) el.classList.add('highlighted');
+function selectCell(cellIndex, page, cellLookup, multiSelect = false) {
+    if (multiSelect) {
+        // Toggle this cell in selection
+        if (selectedCellIndices.has(cellIndex)) {
+            selectedCellIndices.delete(cellIndex);
+        } else {
+            selectedCellIndices.add(cellIndex);
+        }
+    } else {
+        // Single select - clear and select only this one
+        selectedCellIndices.clear();
+        selectedCellIndices.add(cellIndex);
     }
 
-    // Also highlight the corresponding pointer
-    const isInterior = page.page_type.includes('Interior');
-    const pageHeaderSize = isInterior ? 12 : 8;
-    const isPage1 = page.page_number === 1;
-    const pageHeaderStart = isPage1 ? 100 : 0;
-    const ptrStart = pageHeaderStart + pageHeaderSize + (cellIndex * 2);
+    updateCellHighlights(page, cellLookup);
+    showSelectionInfo(page, cellLookup);
+}
 
-    document.querySelectorAll(`.page-byte[data-offset="${ptrStart}"], .page-byte[data-offset="${ptrStart + 1}"]`).forEach(el => {
-        el.classList.add('selected');
-    });
+// Show info for current selection (single or multiple cells)
+function showSelectionInfo(page, cellLookup) {
+    if (selectedCellIndices.size === 0) {
+        document.getElementById('selection-info').innerHTML = '<p class="placeholder">Click a cell to see details. Shift+Click or Cmd/Ctrl+Click to select multiple.</p>';
+        return;
+    }
 
-    showCellInfo(cellIndex, cell, page, cellInfo);
+    if (selectedCellIndices.size === 1) {
+        // Single cell - show detailed info
+        const cellIndex = [...selectedCellIndices][0];
+        const cell = page.cells[cellIndex];
+        const cellInfo = cellLookup ? cellLookup.get(cellIndex) : null;
+        showCellInfo(cellIndex, cell, page, cellInfo);
+    } else {
+        // Multiple cells - show summary
+        showMultiCellInfo(page, cellLookup);
+    }
+}
+
+// Show info for multiple selected cells
+function showMultiCellInfo(page, cellLookup) {
+    const indices = [...selectedCellIndices].sort((a, b) => a - b);
+    const cells = indices.map(i => page.cells[i]).filter(c => c);
+
+    const totalSize = cells.reduce((sum, c) => sum + c.size, 0);
+    const hasOverflow = cells.some(c => c.has_overflow);
+
+    // Build hex dumps with separators for each cell
+    const hexDumps = cells.map((c, i) => {
+        const header = `--- Cell #${indices[i]} (${c.size} bytes) ---`;
+        const hex = formatHexDump(c.raw_hex || '');
+        return header + '\n' + hex;
+    }).join('\n\n');
+
+    // Build ASCII views with separators for each cell
+    const asciiDumps = cells.map((c, i) => {
+        const header = `--- Cell #${indices[i]} (${c.size} bytes) ---`;
+        const ascii = hexToAscii(c.raw_hex || '');
+        return header + '\n' + ascii;
+    }).join('\n\n');
+
+    // Build rows HTML for each selected cell
+    let rowsHtml = cells.map((cell, i) => {
+        const idx = indices[i];
+        const cellInfo = cellLookup ? cellLookup.get(idx) : null;
+        const physIndex = cellInfo ? cellInfo.physIndex : '?';
+        return `
+            <tr>
+                <td>#${idx}</td>
+                <td>${physIndex}</td>
+                <td>${cell.offset}</td>
+                <td>${cell.size}</td>
+                <td>${cell.rowid !== null ? cell.rowid : '-'}</td>
+                <td>${cell.has_overflow ? 'P' + cell.overflow_page : '-'}</td>
+            </tr>
+        `;
+    }).join('');
+
+    document.getElementById('selection-info').innerHTML = `
+        <div class="multi-cell-info" id="multi-cell-container">
+            <h4>${selectedCellIndices.size} Cells Selected</h4>
+            <div class="meta">Total size: ${totalSize} bytes${hasOverflow ? ' · Has overflow' : ''}</div>
+            <table class="detail-table">
+                <tr><th>Cell</th><th>Phys</th><th>Offset</th><th>Size</th><th>Rowid</th><th>Overflow</th></tr>
+                ${rowsHtml}
+            </table>
+            <div class="content-tabs">
+                <button class="content-tab active" data-view="pretty">Pretty</button>
+                <button class="content-tab" data-view="hex">Hex</button>
+                <button class="content-tab" data-view="ascii">ASCII</button>
+            </div>
+            <div class="content-view active" data-view="pretty">
+                <pre>${cells.map((c, i) => `--- Cell #${indices[i]} ---\n${escapeHtml(c.full_content || c.preview)}`).join('\n\n')}</pre>
+            </div>
+            <div class="content-view" data-view="hex">
+                <pre>${escapeHtml(hexDumps)}</pre>
+            </div>
+            <div class="content-view" data-view="ascii">
+                <pre>${escapeHtml(asciiDumps)}</pre>
+            </div>
+        </div>
+    `;
+    setupContentTabs('multi-cell-container');
 }
 
 // Show pointer info in sidebar
@@ -983,7 +1095,7 @@ function renderPageDetailCells(page) {
 
     page.cells.forEach((cell, idx) => {
         html += `
-            <div class="cell-item ${cell.has_overflow ? 'has-overflow' : ''}" onclick="selectCell(${idx}, currentDetailPage, currentCellLookup)" style="cursor: pointer;">
+            <div class="cell-item ${cell.has_overflow ? 'has-overflow' : ''}" data-cell-idx="${idx}" style="cursor: pointer;">
                 <div class="cell-header">
                     <span class="cell-index">#${idx}</span>
                     <span class="cell-type">${cell.cell_type}</span>
@@ -1000,6 +1112,15 @@ function renderPageDetailCells(page) {
     });
 
     container.innerHTML = html || '<p class="placeholder">No cells</p>';
+
+    // Add click handlers with multi-select support
+    container.querySelectorAll('.cell-item').forEach(el => {
+        el.addEventListener('click', (e) => {
+            const idx = parseInt(el.dataset.cellIdx);
+            const multiSelect = e.shiftKey || e.metaKey || e.ctrlKey;
+            selectCell(idx, currentDetailPage, currentCellLookup, multiSelect);
+        });
+    });
 }
 
 // Handle escape key to close page detail view
