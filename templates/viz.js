@@ -573,6 +573,57 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
+// Convert hex string to ASCII representation
+function hexToAscii(hexStr) {
+    const bytes = hexStr.split(' ').filter(b => b.length > 0);
+    let result = '';
+    for (let i = 0; i < bytes.length; i++) {
+        const byte = parseInt(bytes[i], 16);
+        // Printable ASCII range: 32-126
+        if (byte >= 32 && byte <= 126) {
+            result += String.fromCharCode(byte);
+        } else {
+            result += '.';
+        }
+    }
+    return result;
+}
+
+// Format hex dump with offset column
+function formatHexDump(hexStr) {
+    const bytes = hexStr.split(' ').filter(b => b.length > 0);
+    const lines = [];
+    const bytesPerLine = 16;
+
+    for (let i = 0; i < bytes.length; i += bytesPerLine) {
+        const offset = i.toString(16).padStart(4, '0');
+        const lineBytes = bytes.slice(i, i + bytesPerLine);
+        const hex = lineBytes.join(' ').padEnd(bytesPerLine * 3 - 1, ' ');
+        const ascii = lineBytes.map(b => {
+            const byte = parseInt(b, 16);
+            return (byte >= 32 && byte <= 126) ? String.fromCharCode(byte) : '.';
+        }).join('');
+        lines.push(`${offset}  ${hex}  |${ascii}|`);
+    }
+    return lines.join('\n');
+}
+
+// Setup content view tabs
+function setupContentTabs(containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    container.querySelectorAll('.content-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            const view = tab.dataset.view;
+            container.querySelectorAll('.content-tab').forEach(t => t.classList.remove('active'));
+            container.querySelectorAll('.content-view').forEach(v => v.classList.remove('active'));
+            tab.classList.add('active');
+            container.querySelector(`.content-view[data-view="${view}"]`).classList.add('active');
+        });
+    });
+}
+
 // ===============================
 // Page Detail View Functions
 // ===============================
@@ -808,7 +859,7 @@ function showPointerInfo(ptrIndex, cell, page, cellInfo) {
     const physIndex = cellInfo ? cellInfo.physIndex : '?';
 
     document.getElementById('selection-info').innerHTML = `
-        <div class="pointer-info">
+        <div class="pointer-info" id="pointer-info-container">
             <h4>Cell Pointer #${ptrIndex}</h4>
             <div class="meta">File Offset: ${fileOffset} · Page Offset: ${ptrOffset} · Length: 2</div>
             <p style="font-size: 12px; margin-bottom: 10px;">Points to cell content at offset ${cell.offset}</p>
@@ -821,10 +872,23 @@ function showPointerInfo(ptrIndex, cell, page, cellInfo) {
                 <tr><td>Cell Size</td><td>${cell.size} bytes</td></tr>
                 ${cell.rowid !== null ? `<tr><td>Rowid</td><td>${cell.rowid}</td></tr>` : ''}
             </table>
-            <h4 style="margin-top: 15px;">Full Content</h4>
-            <pre style="background: #f5f5f5; padding: 10px; border-radius: 4px; font-size: 11px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; max-height: 200px; overflow-y: auto;">${escapeHtml(cell.full_content || cell.preview)}</pre>
+            <div class="content-tabs">
+                <button class="content-tab active" data-view="pretty">Pretty</button>
+                <button class="content-tab" data-view="hex">Hex</button>
+                <button class="content-tab" data-view="ascii">ASCII</button>
+            </div>
+            <div class="content-view active" data-view="pretty">
+                <pre>${escapeHtml(cell.full_content || cell.preview)}</pre>
+            </div>
+            <div class="content-view" data-view="hex">
+                <pre>${escapeHtml(formatHexDump(cell.raw_hex || ''))}</pre>
+            </div>
+            <div class="content-view" data-view="ascii">
+                <pre>${escapeHtml(hexToAscii(cell.raw_hex || ''))}</pre>
+            </div>
         </div>
     `;
+    setupContentTabs('pointer-info-container');
 }
 
 // Show cell info in sidebar
@@ -833,7 +897,7 @@ function showCellInfo(cellIndex, cell, page, cellInfo) {
     const physIndex = cellInfo ? cellInfo.physIndex : '?';
 
     document.getElementById('selection-info').innerHTML = `
-        <div class="cell-detail-info">
+        <div class="cell-detail-info" id="cell-info-container">
             <h4>Cell #${cellIndex} (${cell.cell_type})</h4>
             <div class="meta">File Offset: ${fileOffset} · Page Offset: ${cell.offset} · Size: ${cell.size}</div>
             <table class="detail-table">
@@ -847,10 +911,23 @@ function showCellInfo(cellIndex, cell, page, cellInfo) {
                 ${cell.left_child !== null ? `<tr><td>Left Child</td><td>Page ${cell.left_child}</td></tr>` : ''}
                 ${cell.has_overflow ? `<tr><td>Overflow</td><td>Page ${cell.overflow_page}</td></tr>` : ''}
             </table>
-            <h4 style="margin-top: 15px;">Full Content</h4>
-            <pre style="background: #f5f5f5; padding: 10px; border-radius: 4px; font-size: 11px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; max-height: 300px; overflow-y: auto;">${escapeHtml(cell.full_content || cell.preview)}</pre>
+            <div class="content-tabs">
+                <button class="content-tab active" data-view="pretty">Pretty</button>
+                <button class="content-tab" data-view="hex">Hex</button>
+                <button class="content-tab" data-view="ascii">ASCII</button>
+            </div>
+            <div class="content-view active" data-view="pretty">
+                <pre>${escapeHtml(cell.full_content || cell.preview)}</pre>
+            </div>
+            <div class="content-view" data-view="hex">
+                <pre>${escapeHtml(formatHexDump(cell.raw_hex || ''))}</pre>
+            </div>
+            <div class="content-view" data-view="ascii">
+                <pre>${escapeHtml(hexToAscii(cell.raw_hex || ''))}</pre>
+            </div>
         </div>
     `;
+    setupContentTabs('cell-info-container');
 }
 
 // Render cells list in page detail sidebar

@@ -507,6 +507,56 @@ body {
     color: #3498db;
 }
 
+/* Content view tabs */
+.content-tabs {
+    display: flex;
+    gap: 0;
+    margin: 15px 0 10px;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.content-tab {
+    padding: 6px 12px;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    font-size: 12px;
+    color: #666;
+    transition: all 0.2s;
+}
+
+.content-tab:hover {
+    color: #333;
+    background: #f5f5f5;
+}
+
+.content-tab.active {
+    color: #3498db;
+    border-bottom-color: #3498db;
+}
+
+.content-view {
+    display: none;
+}
+
+.content-view.active {
+    display: block;
+}
+
+.content-view pre {
+    background: #f5f5f5;
+    padding: 10px;
+    border-radius: 4px;
+    font-size: 11px;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 300px;
+    overflow-y: auto;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+}
+
 .page-grid-legend {
     display: flex;
     gap: 15px;

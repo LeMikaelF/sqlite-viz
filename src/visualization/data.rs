@@ -191,6 +191,7 @@ pub struct VizCell {
     pub overflow_page: Option<u32>,
     pub preview: String,
     pub full_content: String,
+    pub raw_hex: String,
 }
 
 impl VizPage {
@@ -252,6 +253,19 @@ impl VizPage {
                 }
             };
 
+            // Extract raw bytes for this cell
+            let offset = cell.cell_offset() as usize;
+            let size = cell.cell_size();
+            let raw_hex = if offset + size <= page.raw_data.len() {
+                page.raw_data[offset..offset + size]
+                    .iter()
+                    .map(|b| format!("{:02x}", b))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            } else {
+                String::new()
+            };
+
             VizCell {
                 index: i,
                 offset: cell.cell_offset(),
@@ -269,6 +283,7 @@ impl VizPage {
                 overflow_page: cell.overflow_page(),
                 preview,
                 full_content,
+                raw_hex,
             }
         }).collect();
 
