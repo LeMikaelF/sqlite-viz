@@ -10,11 +10,49 @@ function init() {
     renderSchemaList();
     setupBTreeSelect();
     setupControls();
+    setupResizeHandle();
 
     // Render first btree by default
     if (DATA.btrees.length > 0) {
         selectBTree(DATA.btrees[0].name);
     }
+}
+
+// Setup resizable detail panel
+function setupResizeHandle() {
+    const handle = document.getElementById('resize-handle');
+    const app = document.getElementById('app');
+    let isResizing = false;
+    let startX = 0;
+    let startWidth = 0;
+
+    handle.addEventListener('mousedown', (e) => {
+        isResizing = true;
+        startX = e.clientX;
+        const panel = document.getElementById('detail-panel');
+        startWidth = panel.offsetWidth;
+        handle.classList.add('dragging');
+        document.body.style.cursor = 'ew-resize';
+        document.body.style.userSelect = 'none';
+        e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (!isResizing) return;
+
+        const delta = startX - e.clientX;
+        const newWidth = Math.min(Math.max(startWidth + delta, 250), 800);
+        app.style.setProperty('--detail-panel-width', newWidth + 'px');
+    });
+
+    document.addEventListener('mouseup', () => {
+        if (isResizing) {
+            isResizing = false;
+            handle.classList.remove('dragging');
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+        }
+    });
 }
 
 // Render database info in sidebar

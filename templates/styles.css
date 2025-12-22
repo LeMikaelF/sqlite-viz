@@ -14,7 +14,7 @@ body {
 
 #app {
     display: grid;
-    grid-template-columns: 250px 1fr 300px;
+    grid-template-columns: 250px 1fr var(--detail-panel-width, 350px);
     height: 100vh;
 }
 
@@ -200,6 +200,44 @@ body {
     border-left: 1px solid #e0e0e0;
     padding: 20px;
     overflow-y: auto;
+    position: relative;
+    min-width: 250px;
+    max-width: 800px;
+}
+
+/* Resize handle */
+.resize-handle {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 6px;
+    cursor: ew-resize;
+    background: transparent;
+    transition: background 0.2s;
+    z-index: 10;
+}
+
+.resize-handle:hover,
+.resize-handle.dragging {
+    background: #3498db;
+}
+
+.resize-handle::before {
+    content: '';
+    position: absolute;
+    left: 2px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 2px;
+    height: 30px;
+    background: #ccc;
+    border-radius: 1px;
+}
+
+.resize-handle:hover::before,
+.resize-handle.dragging::before {
+    background: #fff;
 }
 
 #detail-panel h2 {
@@ -252,7 +290,7 @@ body {
 }
 
 #cells {
-    max-height: 300px;
+    max-height: calc(100vh - 500px);
     overflow-y: auto;
 }
 
