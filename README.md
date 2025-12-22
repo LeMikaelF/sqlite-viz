@@ -44,6 +44,39 @@ sqlite-viz info <DATABASE> [-v]
 Options:
 - `-v, --verbose` - Show detailed information including all tables and indexes
 
+### Dump to text file
+
+Dump database structure to a human-readable text file for debugging:
+
+```bash
+sqlite-viz dump <DATABASE> [-o output.txt] [-t tree_name] [-p page_num]
+```
+
+Options:
+- `-o, --output <FILE>` - Output file (default: `<database>.dump.txt`)
+- `-t, --tree <NAME>` - Dump specific B-tree(s) by name (repeatable)
+- `-p, --page <NUM>` - Dump specific page(s) by number (repeatable)
+
+Examples:
+```bash
+# Dump entire database
+sqlite-viz dump mydb.sqlite
+
+# Dump only the users table
+sqlite-viz dump mydb.sqlite -t users
+
+# Dump specific pages
+sqlite-viz dump mydb.sqlite -p 1 -p 2
+```
+
+The dump includes:
+- Database header (page size, encoding, SQLite version, etc.)
+- Schema overview with SQL definitions
+- B-tree structure showing pages at each level
+- Page details (header, cell pointers, free space)
+- Cell contents with column types and values
+- Hex+ASCII view of raw page bytes
+
 ## Visualization Features
 
 ### Main View
@@ -84,6 +117,10 @@ Click "View Page Structure" on any page to see:
 - Overflow page chains
 - All serial types (NULL, integers, floats, blobs, text)
 - UTF-8, UTF-16LE, UTF-16BE text encodings
+
+## Other
+
+This was built using Claude Code, and in part inspired by https://sqlite-internal.pages.dev/.
 
 ## License
 

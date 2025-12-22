@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 use anyhow::Result;
 
-use sqlite_viz::{Database, print_database_info};
+use sqlite_viz::{Database, print_database_info, dump};
 
 #[derive(Parser)]
 #[command(name = "sqlite-viz")]
@@ -43,6 +43,25 @@ enum Commands {
         #[arg(short, long)]
         verbose: bool,
     },
+
+    /// Dump database structure to a human-readable text file for debugging
+    Dump {
+        /// Path to SQLite database file
+        #[arg(value_name = "DATABASE")]
+        database: PathBuf,
+
+        /// Output text file path (default: <database>.dump.txt)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Dump specific B-tree(s) by name - can be specified multiple times
+        #[arg(short = 't', long)]
+        tree: Option<Vec<String>>,
+
+        /// Dump specific page(s) by number - can be specified multiple times
+        #[arg(short, long)]
+        page: Option<Vec<u32>>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -69,6 +88,29 @@ fn main() -> Result<()> {
         Commands::Info { database, verbose } => {
             let db = Database::open(&database)?;
             print_database_info(&db, verbose);
+        }
+
+        Commands::Dump { database, output, tree, page } => {
+            let db = Database::open(&database)?;
+
+            let output_path = output.unwrap_or_else(|| {
+                let mut path = database.clone();
+                let new_name = format!(
+                    "{}.dump.txt",
+                    path.file_stem().and_then(|s| s.to_str()).unwrap_or("database")
+                );
+                path.set_file_name(new_name);
+                path
+            });
+
+            let options = dump::DumpOptions {
+                btrees: tree,
+                pages: page,
+            };
+
+            dump::dump_to_file(&db, &output_path, &options)?;
+
+            println!("Dump written to: {}", output_path.display());
         }
     }
 

@@ -3,6 +3,7 @@ pub mod parser;
 pub mod model;
 pub mod analyzer;
 pub mod visualization;
+pub mod dump;
 
 use std::path::Path;
 use memmap2::Mmap;
