@@ -484,6 +484,29 @@ body {
     box-shadow: 0 0 0 2px #c0392b;
 }
 
+/* Cell order labels */
+.cell-order-label {
+    position: absolute;
+    background: rgba(0, 0, 0, 0.8);
+    color: #fff;
+    font-size: 10px;
+    padding: 2px 5px;
+    border-radius: 3px;
+    pointer-events: none;
+    white-space: nowrap;
+    z-index: 20;
+    transform: translateY(-100%);
+    margin-top: -3px;
+}
+
+.cell-order-label .ptr-order {
+    color: #f39c12;
+}
+
+.cell-order-label .phys-order {
+    color: #3498db;
+}
+
 .page-grid-legend {
     display: flex;
     gap: 15px;

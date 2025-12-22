@@ -389,6 +389,7 @@ function getPageClass(pageType) {
 
 // Current page for detail view
 let currentDetailPage = null;
+let currentCellLookup = null;
 
 // Show page details
 function showPageDetails(pageNum) {
@@ -603,6 +604,7 @@ function closePageDetailView() {
     document.getElementById('page-detail-view').classList.remove('active');
     document.body.style.overflow = '';
     currentDetailPage = null;
+    currentCellLookup = null;
 }
 
 // Render the page as a byte grid
@@ -622,16 +624,30 @@ function renderPageGrid(page) {
     const cellPointerEnd = pageHeaderEnd + (page.cell_count * 2);
     const cellContentStart = page.cell_content_start || pageSize;
 
-    // Build cell regions map
+    // Build cell regions map with pointer index
     const cellRegions = [];
     page.cells.forEach((cell, idx) => {
         cellRegions.push({
-            index: idx,
+            ptrIndex: idx,  // Index in pointer array (logical order)
             start: cell.offset,
             end: cell.offset + cell.size,
             hasOverflow: cell.has_overflow
         });
     });
+
+    // Sort by offset to get physical order
+    const cellsByOffset = [...cellRegions].sort((a, b) => a.start - b.start);
+    // Assign physical order index
+    cellsByOffset.forEach((cell, physIdx) => {
+        cell.physIndex = physIdx;
+    });
+    // Create lookup by pointer index
+    const cellLookup = new Map();
+    cellRegions.forEach(cell => {
+        cellLookup.set(cell.ptrIndex, cell);
+    });
+    // Store globally for use by sidebar cell clicks
+    currentCellLookup = cellLookup;
 
     let html = '';
 
@@ -668,7 +684,11 @@ function renderPageGrid(page) {
                 if (inCell) {
                     className += ' cell-content';
                     if (inCell.hasOverflow) className += ' overflow';
-                    dataAttrs += ` data-type="cell" data-cell-index="${inCell.index}"`;
+                    dataAttrs += ` data-type="cell" data-cell-index="${inCell.ptrIndex}" data-phys-index="${inCell.physIndex}"`;
+                    // Mark first byte of cell for label placement
+                    if (byteOffset === inCell.start) {
+                        dataAttrs += ' data-cell-start="true"';
+                    }
                 } else {
                     className += ' free';
                     dataAttrs += ' data-type="free"';
@@ -682,11 +702,23 @@ function renderPageGrid(page) {
 
     container.innerHTML = html;
 
+    // Add cell order labels at the start of each cell
+    container.querySelectorAll('.page-byte[data-cell-start="true"]').forEach(el => {
+        const ptrIndex = parseInt(el.dataset.cellIndex);
+        const physIndex = parseInt(el.dataset.physIndex);
+        const label = document.createElement('div');
+        label.className = 'cell-order-label';
+        label.innerHTML = `<span class="ptr-order">P${ptrIndex}</span> <span class="phys-order">→${physIndex}</span>`;
+        label.title = `Pointer order: #${ptrIndex}, Physical order: #${physIndex}`;
+        el.style.position = 'relative';
+        el.appendChild(label);
+    });
+
     // Add click handlers for cell pointers
     container.querySelectorAll('.cell-pointer').forEach(el => {
         el.addEventListener('click', (e) => {
             const ptrIndex = parseInt(el.dataset.ptrIndex);
-            selectCellPointer(ptrIndex, page);
+            selectCellPointer(ptrIndex, page, cellLookup);
         });
     });
 
@@ -694,13 +726,13 @@ function renderPageGrid(page) {
     container.querySelectorAll('.cell-content').forEach(el => {
         el.addEventListener('click', (e) => {
             const cellIndex = parseInt(el.dataset.cellIndex);
-            selectCell(cellIndex, page);
+            selectCell(cellIndex, page, cellLookup);
         });
     });
 }
 
 // Select a cell pointer and highlight the corresponding cell
-function selectCellPointer(ptrIndex, page) {
+function selectCellPointer(ptrIndex, page, cellLookup) {
     // Clear previous selection
     document.querySelectorAll('.page-byte.selected, .page-byte.highlighted').forEach(el => {
         el.classList.remove('selected', 'highlighted');
@@ -719,6 +751,7 @@ function selectCellPointer(ptrIndex, page) {
 
     // Get the cell this pointer points to
     const cell = page.cells[ptrIndex];
+    const cellInfo = cellLookup ? cellLookup.get(ptrIndex) : null;
     if (cell) {
         // Highlight the cell content
         for (let i = cell.offset; i < cell.offset + cell.size; i++) {
@@ -727,12 +760,12 @@ function selectCellPointer(ptrIndex, page) {
         }
 
         // Update selection info
-        showPointerInfo(ptrIndex, cell, page);
+        showPointerInfo(ptrIndex, cell, page, cellInfo);
     }
 }
 
 // Select a cell and show its details
-function selectCell(cellIndex, page) {
+function selectCell(cellIndex, page, cellLookup) {
     // Clear previous selection
     document.querySelectorAll('.page-byte.selected, .page-byte.highlighted').forEach(el => {
         el.classList.remove('selected', 'highlighted');
@@ -740,6 +773,8 @@ function selectCell(cellIndex, page) {
 
     const cell = page.cells[cellIndex];
     if (!cell) return;
+
+    const cellInfo = cellLookup ? cellLookup.get(cellIndex) : null;
 
     // Highlight the cell
     for (let i = cell.offset; i < cell.offset + cell.size; i++) {
@@ -758,17 +793,19 @@ function selectCell(cellIndex, page) {
         el.classList.add('selected');
     });
 
-    showCellInfo(cellIndex, cell, page);
+    showCellInfo(cellIndex, cell, page, cellInfo);
 }
 
 // Show pointer info in sidebar
-function showPointerInfo(ptrIndex, cell, page) {
+function showPointerInfo(ptrIndex, cell, page, cellInfo) {
     const isInterior = page.page_type.includes('Interior');
     const pageHeaderSize = isInterior ? 12 : 8;
     const isPage1 = page.page_number === 1;
     const pageHeaderStart = isPage1 ? 100 : 0;
     const ptrOffset = pageHeaderStart + pageHeaderSize + (ptrIndex * 2);
     const fileOffset = (page.page_number - 1) * DATA.database_info.page_size + ptrOffset;
+    const cellFileOffset = (page.page_number - 1) * DATA.database_info.page_size + cell.offset;
+    const physIndex = cellInfo ? cellInfo.physIndex : '?';
 
     document.getElementById('selection-info').innerHTML = `
         <div class="pointer-info">
@@ -777,18 +814,23 @@ function showPointerInfo(ptrIndex, cell, page) {
             <p style="font-size: 12px; margin-bottom: 10px;">Points to cell content at offset ${cell.offset}</p>
             <table class="detail-table">
                 <tr><th>Field</th><th>Value</th></tr>
-                <tr><td>Pointer Index</td><td>${ptrIndex}</td></tr>
-                <tr><td>Points to Offset</td><td>${cell.offset}</td></tr>
+                <tr><td>Pointer Index (logical)</td><td>${ptrIndex}</td></tr>
+                <tr><td>Physical Order</td><td>${physIndex}</td></tr>
+                <tr><td>Cell Offset</td><td>${cell.offset}</td></tr>
+                <tr><td>Cell File Offset</td><td>${cellFileOffset}</td></tr>
                 <tr><td>Cell Size</td><td>${cell.size} bytes</td></tr>
                 ${cell.rowid !== null ? `<tr><td>Rowid</td><td>${cell.rowid}</td></tr>` : ''}
             </table>
+            <h4 style="margin-top: 15px;">Full Content</h4>
+            <pre style="background: #f5f5f5; padding: 10px; border-radius: 4px; font-size: 11px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; max-height: 200px; overflow-y: auto;">${escapeHtml(cell.full_content || cell.preview)}</pre>
         </div>
     `;
 }
 
 // Show cell info in sidebar
-function showCellInfo(cellIndex, cell, page) {
+function showCellInfo(cellIndex, cell, page, cellInfo) {
     const fileOffset = (page.page_number - 1) * DATA.database_info.page_size + cell.offset;
+    const physIndex = cellInfo ? cellInfo.physIndex : '?';
 
     document.getElementById('selection-info').innerHTML = `
         <div class="cell-detail-info">
@@ -796,7 +838,8 @@ function showCellInfo(cellIndex, cell, page) {
             <div class="meta">File Offset: ${fileOffset} · Page Offset: ${cell.offset} · Size: ${cell.size}</div>
             <table class="detail-table">
                 <tr><th>Field</th><th>Value</th></tr>
-                <tr><td>Cell Index</td><td>${cellIndex}</td></tr>
+                <tr><td>Pointer Index (logical)</td><td>${cellIndex}</td></tr>
+                <tr><td>Physical Order</td><td>${physIndex}</td></tr>
                 <tr><td>Offset</td><td>${cell.offset}</td></tr>
                 <tr><td>Size</td><td>${cell.size} bytes</td></tr>
                 ${cell.rowid !== null ? `<tr><td>Rowid</td><td>${cell.rowid}</td></tr>` : ''}
@@ -817,15 +860,18 @@ function renderPageDetailCells(page) {
 
     page.cells.forEach((cell, idx) => {
         html += `
-            <div class="cell-item" onclick="selectCell(${idx}, currentDetailPage)" style="cursor: pointer;">
+            <div class="cell-item ${cell.has_overflow ? 'has-overflow' : ''}" onclick="selectCell(${idx}, currentDetailPage, currentCellLookup)" style="cursor: pointer;">
                 <div class="cell-header">
                     <span class="cell-index">#${idx}</span>
                     <span class="cell-type">${cell.cell_type}</span>
                 </div>
+                <div class="cell-preview">${escapeHtml(cell.preview)}</div>
                 <div class="cell-meta">
-                    <span>Offset: ${cell.offset}</span>
+                    ${cell.rowid !== null ? `<span>Rowid: ${cell.rowid}</span>` : ''}
                     <span>Size: ${cell.size}B</span>
+                    ${cell.left_child !== null ? `<span>Child: P${cell.left_child}</span>` : ''}
                 </div>
+                ${cell.has_overflow ? `<div style="color: #e74c3c; font-size: 11px; margin-top: 3px">Overflow: Page ${cell.overflow_page}</div>` : ''}
             </div>
         `;
     });
