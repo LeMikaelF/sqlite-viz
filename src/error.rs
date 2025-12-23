@@ -8,6 +8,9 @@ pub enum SqliteVizError {
     #[error("Invalid SQLite magic header")]
     InvalidMagic,
 
+    #[error("Invalid WAL magic header: {0:#x}")]
+    InvalidWalMagic(u32),
+
     #[error("Invalid page type: {0:#x}")]
     InvalidPageType(u8),
 

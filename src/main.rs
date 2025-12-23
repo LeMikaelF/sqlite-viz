@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 use anyhow::Result;
 
-use sqlite_viz::{Database, print_database_info, dump};
+use sqlite_viz::{Database, print_database_info, dump, parser};
 
 #[derive(Parser)]
 #[command(name = "sqlite-viz")]
@@ -44,10 +44,10 @@ enum Commands {
         verbose: bool,
     },
 
-    /// Dump database structure to a human-readable text file for debugging
+    /// Dump database or WAL structure to a human-readable text file for debugging
     Dump {
-        /// Path to SQLite database file
-        #[arg(value_name = "DATABASE")]
+        /// Path to SQLite database or WAL file
+        #[arg(value_name = "FILE")]
         database: PathBuf,
 
         /// Output text file path (default: <database>.dump.txt)
@@ -95,7 +95,8 @@ fn main() -> Result<()> {
         }
 
         Commands::Dump { database, output, tree, page, no_hex } => {
-            let db = Database::open(&database)?;
+            // Read file to detect type
+            let file_data = std::fs::read(&database)?;
 
             let output_path = output.unwrap_or_else(|| {
                 let mut path = database.clone();
@@ -108,12 +109,37 @@ fn main() -> Result<()> {
             });
 
             let options = dump::DumpOptions {
-                btrees: tree,
+                btrees: tree.clone(),
                 pages: page,
                 no_hex,
             };
 
-            dump::dump_to_file(&db, &output_path, &options)?;
+            match dump::detect_file_type(&file_data) {
+                dump::FileType::SqliteDb => {
+                    let db = Database::open(&database)?;
+                    dump::dump_to_file(&db, &output_path, &options)?;
+                }
+                dump::FileType::WalFile => {
+                    // Warn if --tree is used with WAL files
+                    if tree.is_some() {
+                        eprintln!("Warning: --tree option is ignored for WAL files");
+                    }
+
+                    let file_name = database
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("wal")
+                        .to_string();
+
+                    let wal = parser::parse_wal_file(&file_data, file_name)?;
+                    dump::dump_wal_to_file(&wal, &output_path, &options)?;
+                }
+                dump::FileType::Unknown => {
+                    anyhow::bail!(
+                        "Unrecognized file format. Expected SQLite database or WAL file."
+                    );
+                }
+            }
 
             println!("Dump written to: {}", output_path.display());
         }

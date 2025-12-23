@@ -1,4 +1,4 @@
-//! Human-readable text dump functionality for debugging SQLite databases.
+//! Human-readable text dump functionality for debugging SQLite databases and WAL files.
 
 use std::fmt::Write as FmtWrite;
 use std::fs::File;
@@ -8,8 +8,31 @@ use std::path::Path;
 use crate::error::Result;
 use crate::model::{
     BTree, BTreeNode, BTreeType, Cell, DatabaseHeader, Page, PageType, Record, SerialType, Value,
+    WalFile, WalFrame, WalHeader,
 };
+use crate::parser::is_wal_file;
 use crate::Database;
+
+/// Detected file type
+pub enum FileType {
+    /// Standard SQLite database file
+    SqliteDb,
+    /// WAL (Write-Ahead Log) file
+    WalFile,
+    /// Unknown file format
+    Unknown,
+}
+
+/// Detect file type from raw data by checking magic bytes
+pub fn detect_file_type(data: &[u8]) -> FileType {
+    if data.len() >= 16 && &data[0..16] == b"SQLite format 3\0" {
+        FileType::SqliteDb
+    } else if is_wal_file(data) {
+        FileType::WalFile
+    } else {
+        FileType::Unknown
+    }
+}
 
 /// Options for controlling what gets dumped
 pub struct DumpOptions {
@@ -236,7 +259,8 @@ fn dump_page(out: &mut String, page: &Page, raw_data: Option<&[u8]>) {
     dump_page_common(out, page, raw_data);
 }
 
-fn dump_page_common(out: &mut String, page: &Page, raw_data: Option<&[u8]>) {
+/// Dump common page content (shared between DB pages and WAL frames)
+pub fn dump_page_common(out: &mut String, page: &Page, raw_data: Option<&[u8]>) {
     // Header info
     if let Some(header) = &page.header {
         writeln!(out, "  Header:").unwrap();
@@ -378,7 +402,8 @@ fn hex_encode(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{:02x}", b)).collect()
 }
 
-fn dump_hex(out: &mut String, data: &[u8], indent: &str) {
+/// Dump data as hex with ASCII representation
+pub fn dump_hex(out: &mut String, data: &[u8], indent: &str) {
     for (offset, chunk) in data.chunks(16).enumerate() {
         let offset = offset * 16;
         write!(out, "{}{:08x}  ", indent, offset).unwrap();
@@ -410,5 +435,159 @@ fn dump_hex(out: &mut String, data: &[u8], indent: &str) {
             write!(out, "{}", c).unwrap();
         }
         writeln!(out, "|").unwrap();
+    }
+}
+
+// =============================================================================
+// WAL dump functions
+// =============================================================================
+
+/// Dump WAL file to a file
+pub fn dump_wal_to_file(wal: &WalFile, output_path: &Path, options: &DumpOptions) -> Result<()> {
+    let content = dump_wal_to_string(wal, options)?;
+    let mut file = File::create(output_path)?;
+    file.write_all(content.as_bytes())?;
+    Ok(())
+}
+
+/// Dump WAL file information to a string
+pub fn dump_wal_to_string(wal: &WalFile, options: &DumpOptions) -> Result<String> {
+    let mut out = String::new();
+
+    // Header
+    writeln!(out, "================================================================================").unwrap();
+    writeln!(out, "SQLite WAL File Dump").unwrap();
+    writeln!(out, "================================================================================").unwrap();
+    writeln!(out).unwrap();
+
+    // WAL header info
+    dump_wal_header(&mut out, &wal.header);
+
+    // Frame count summary
+    writeln!(out).unwrap();
+    writeln!(out, "Frame count:            {}", wal.frames.len()).unwrap();
+
+    // If specific pages requested, filter frames by DB page number
+    let frames_to_dump: Vec<&WalFrame> = if let Some(page_numbers) = &options.pages {
+        wal.frames
+            .iter()
+            .filter(|f| page_numbers.contains(&f.header.page_number))
+            .collect()
+    } else {
+        wal.frames.iter().collect()
+    };
+
+    // Dump frames
+    writeln!(out).unwrap();
+    writeln!(out, "================================================================================").unwrap();
+    writeln!(out, "FRAMES").unwrap();
+    writeln!(out, "================================================================================").unwrap();
+
+    for frame in frames_to_dump {
+        writeln!(out).unwrap();
+        dump_wal_frame(&mut out, frame, options.no_hex);
+    }
+
+    Ok(out)
+}
+
+fn dump_wal_header(out: &mut String, header: &WalHeader) {
+    writeln!(out, "WAL HEADER").unwrap();
+    writeln!(out, "--------------------------------------------------------------------------------").unwrap();
+    writeln!(
+        out,
+        "Magic:                  0x{:08x} ({})",
+        header.magic,
+        if header.is_big_endian() {
+            "big-endian"
+        } else {
+            "little-endian"
+        }
+    )
+    .unwrap();
+    writeln!(out, "Format version:         {}", header.format_version).unwrap();
+    writeln!(out, "Page size:              {} bytes", header.page_size).unwrap();
+    writeln!(
+        out,
+        "Checkpoint sequence:    {}",
+        header.checkpoint_sequence
+    )
+    .unwrap();
+    writeln!(out, "Salt-1:                 0x{:08x}", header.salt1).unwrap();
+    writeln!(out, "Salt-2:                 0x{:08x}", header.salt2).unwrap();
+    writeln!(out, "Checksum-1:             0x{:08x}", header.checksum1).unwrap();
+    writeln!(out, "Checksum-2:             0x{:08x}", header.checksum2).unwrap();
+}
+
+fn dump_wal_frame(out: &mut String, frame: &WalFrame, no_hex: bool) {
+    writeln!(out, "--------------------------------------------------------------------------------").unwrap();
+    writeln!(
+        out,
+        "FRAME {} (DB page {}){}",
+        frame.frame_index,
+        frame.header.page_number,
+        if frame.header.is_commit_frame() {
+            " [COMMIT]"
+        } else {
+            ""
+        }
+    )
+    .unwrap();
+    writeln!(out, "--------------------------------------------------------------------------------").unwrap();
+
+    // Frame header info
+    writeln!(out, "  Frame Header:").unwrap();
+    writeln!(
+        out,
+        "    Page number:          {}",
+        frame.header.page_number
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "    DB size after commit: {}",
+        frame.header.db_size_after_commit
+    )
+    .unwrap();
+    writeln!(out, "    Salt-1:               0x{:08x}", frame.header.salt1).unwrap();
+    writeln!(out, "    Salt-2:               0x{:08x}", frame.header.salt2).unwrap();
+    writeln!(
+        out,
+        "    Checksum-1:           0x{:08x}",
+        frame.header.checksum1
+    )
+    .unwrap();
+    writeln!(
+        out,
+        "    Checksum-2:           0x{:08x}",
+        frame.header.checksum2
+    )
+    .unwrap();
+
+    // Page content
+    writeln!(out).unwrap();
+    writeln!(out, "  Page Content:").unwrap();
+
+    if let Some(page) = &frame.page {
+        // Reuse existing dump_page_common
+        let raw_data = if no_hex {
+            None
+        } else {
+            Some(frame.raw_page_data.as_slice())
+        };
+        dump_page_common(out, page, raw_data);
+    } else {
+        writeln!(
+            out,
+            "    (Could not parse page content - may be overflow, freelist, or corrupted)"
+        )
+        .unwrap();
+
+        // Still show hex dump if requested
+        if !no_hex {
+            writeln!(out).unwrap();
+            writeln!(out, "  Hex dump:").unwrap();
+            dump_hex(out, &frame.raw_page_data, "    ");
+        }
     }
 }
