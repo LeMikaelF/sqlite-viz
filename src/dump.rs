@@ -17,6 +17,8 @@ pub struct DumpOptions {
     pub btrees: Option<Vec<String>>,
     /// Specific pages to dump (by number). If None, dumps based on btrees.
     pub pages: Option<Vec<u32>>,
+    /// If true, omit hex dumps from output
+    pub no_hex: bool,
 }
 
 /// Dump database information to a file
@@ -51,7 +53,7 @@ pub fn dump_to_string(db: &Database, options: &DumpOptions) -> Result<String> {
             writeln!(out).unwrap();
             match db.parse_page(page_num) {
                 Ok(page) => {
-                    let raw_data = db.read_page_raw(page_num).ok();
+                    let raw_data = if options.no_hex { None } else { db.read_page_raw(page_num).ok() };
                     dump_page(&mut out, &page, raw_data);
                 }
                 Err(e) => {
@@ -124,7 +126,7 @@ pub fn dump_to_string(db: &Database, options: &DumpOptions) -> Result<String> {
 
         match db.build_btree(&name, root_page, tree_type) {
             Ok(btree) => {
-                dump_btree(&mut out, db, &btree)?;
+                dump_btree(&mut out, db, &btree, options.no_hex)?;
             }
             Err(e) => {
                 writeln!(out, "ERROR: Could not build B-tree: {}", e).unwrap();
@@ -160,7 +162,7 @@ fn dump_header(out: &mut String, header: &DatabaseHeader, page_count: u32) {
     writeln!(out, "Version valid for:      {}", header.version_valid_for).unwrap();
 }
 
-fn dump_btree(out: &mut String, db: &Database, btree: &BTree) -> Result<()> {
+fn dump_btree(out: &mut String, db: &Database, btree: &BTree, no_hex: bool) -> Result<()> {
     writeln!(out).unwrap();
     writeln!(out, "Root page:     {}", btree.root_page).unwrap();
     writeln!(out, "Tree depth:    {}", btree.depth).unwrap();
@@ -178,7 +180,7 @@ fn dump_btree(out: &mut String, db: &Database, btree: &BTree) -> Result<()> {
         writeln!(out, "--------------------------------------------------------------------------------").unwrap();
 
         let page = db.parse_page(node.page_number)?;
-        let raw_data = db.read_page_raw(node.page_number).ok();
+        let raw_data = if no_hex { None } else { db.read_page_raw(node.page_number).ok() };
         dump_page_with_node(out, &page, node, raw_data);
     }
 

@@ -61,6 +61,10 @@ enum Commands {
         /// Dump specific page(s) by number - can be specified multiple times
         #[arg(short, long)]
         page: Option<Vec<u32>>,
+
+        /// Omit hex dumps from output
+        #[arg(long)]
+        no_hex: bool,
     },
 }
 
@@ -90,7 +94,7 @@ fn main() -> Result<()> {
             print_database_info(&db, verbose);
         }
 
-        Commands::Dump { database, output, tree, page } => {
+        Commands::Dump { database, output, tree, page, no_hex } => {
             let db = Database::open(&database)?;
 
             let output_path = output.unwrap_or_else(|| {
@@ -106,6 +110,7 @@ fn main() -> Result<()> {
             let options = dump::DumpOptions {
                 btrees: tree,
                 pages: page,
+                no_hex,
             };
 
             dump::dump_to_file(&db, &output_path, &options)?;
