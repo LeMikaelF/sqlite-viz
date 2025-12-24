@@ -29,7 +29,8 @@ pub fn parse_record(data: &[u8]) -> Result<Record> {
     let mut value_offset = header_size as usize;
 
     for serial_type in &column_types {
-        if value_offset >= data.len() {
+        let type_size = serial_type.size();
+        if value_offset + type_size > data.len() {
             // Payload may be truncated due to overflow
             values.push(Value::Null);
             continue;
@@ -149,5 +150,87 @@ mod tests {
         assert_eq!(record.header_size, 2);
         assert_eq!(record.column_types.len(), 1);
         assert!(matches!(record.column_types[0], SerialType::Null));
+    }
+
+    #[test]
+    fn test_parse_zero_size_types_at_end() {
+        // Record with a blob followed by One (serial type 9)
+        // This tests that zero-size types at the end of payload are parsed correctly
+        // Header: 03 (size=3), 0e (Blob(1)), 09 (One)
+        // Values: 0x42 (the blob byte)
+        let data = [0x03, 0x0e, 0x09, 0x42];
+        let record = parse_record(&data).unwrap();
+        assert_eq!(record.header_size, 3);
+        assert_eq!(record.column_types.len(), 2);
+        assert!(matches!(record.column_types[0], SerialType::Blob(1)));
+        assert!(matches!(record.column_types[1], SerialType::One));
+        assert_eq!(record.values.len(), 2);
+        assert!(matches!(&record.values[0], Value::Blob(b) if b == &[0x42]));
+        assert!(matches!(record.values[1], Value::Integer(1)));
+    }
+
+    #[test]
+    fn test_parse_zero_at_end() {
+        // Record ending with Zero (serial type 8)
+        // Header: 03 (size=3), 0e (Blob(1)), 08 (Zero)
+        // Values: 0x42 (the blob byte)
+        let data = [0x03, 0x0e, 0x08, 0x42];
+        let record = parse_record(&data).unwrap();
+        assert_eq!(record.column_types.len(), 2);
+        assert!(matches!(record.column_types[1], SerialType::Zero));
+        assert!(matches!(record.values[1], Value::Integer(0)));
+    }
+
+    #[test]
+    fn test_parse_multiple_zero_size_types_at_end() {
+        // Record with blob followed by Zero and One
+        // Header: 04 (size=4), 0e (Blob(1)), 08 (Zero), 09 (One)
+        // Values: 0x42 (the blob byte)
+        let data = [0x04, 0x0e, 0x08, 0x09, 0x42];
+        let record = parse_record(&data).unwrap();
+        assert_eq!(record.column_types.len(), 3);
+        assert!(matches!(record.column_types[1], SerialType::Zero));
+        assert!(matches!(record.column_types[2], SerialType::One));
+        assert!(matches!(record.values[1], Value::Integer(0)));
+        assert!(matches!(record.values[2], Value::Integer(1)));
+    }
+
+    #[test]
+    fn test_parse_zero_size_only() {
+        // Record with only zero-size types: NULL, Zero, One
+        // Header: 04 (size=4), 00 (NULL), 08 (Zero), 09 (One)
+        // No value bytes needed
+        let data = [0x04, 0x00, 0x08, 0x09];
+        let record = parse_record(&data).unwrap();
+        assert_eq!(record.column_types.len(), 3);
+        assert!(matches!(record.values[0], Value::Null));
+        assert!(matches!(record.values[1], Value::Integer(0)));
+        assert!(matches!(record.values[2], Value::Integer(1)));
+    }
+
+    #[test]
+    fn test_parse_zero_size_in_middle() {
+        // Zero-size type in the middle, not at end
+        // Header: 04 (size=4), 09 (One), 0e (Blob(1)), 01 (Int8)
+        // Values: 0x42 (blob), 0x07 (int8 = 7)
+        let data = [0x04, 0x09, 0x0e, 0x01, 0x42, 0x07];
+        let record = parse_record(&data).unwrap();
+        assert_eq!(record.column_types.len(), 3);
+        assert!(matches!(record.values[0], Value::Integer(1)));
+        assert!(matches!(&record.values[1], Value::Blob(b) if b == &[0x42]));
+        assert!(matches!(record.values[2], Value::Integer(7)));
+    }
+
+    #[test]
+    fn test_parse_truncated_payload_returns_null() {
+        // Payload is truncated - Int16 needs 2 bytes but only 1 available
+        // Header: 03 (size=3), 0e (Blob(1)), 02 (Int16)
+        // Values: 0x42 (blob), then truncated (missing second byte for Int16)
+        let data = [0x03, 0x0e, 0x02, 0x42, 0x01];
+        let record = parse_record(&data).unwrap();
+        assert_eq!(record.column_types.len(), 2);
+        assert!(matches!(&record.values[0], Value::Blob(b) if b == &[0x42]));
+        // Int16 should be NULL because payload is truncated
+        assert!(matches!(record.values[1], Value::Null));
     }
 }
